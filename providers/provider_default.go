@@ -131,3 +131,8 @@ func (p *ProviderData) ValidateSessionState(s *sessions.SessionState) bool {
 func (p *ProviderData) RefreshSessionIfNeeded(s *sessions.SessionState) (bool, error) {
 	return false, nil
 }
+
+// ReturnAuth will return OK if the user is in the authorization groups
+func (p *ProviderData) ReturnAuth(token string) (string, error) {
+	return "", errors.New("not implemented")
+}

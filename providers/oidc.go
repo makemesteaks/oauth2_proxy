@@ -2,7 +2,11 @@ package providers
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io/ioutil"
+	"net/http"
+	"net/url"
 	"time"
 
 	oidc "github.com/coreos/go-oidc"
@@ -39,6 +43,7 @@ func (p *OIDCProvider) Redeem(redirectURL, code string) (s *sessions.SessionStat
 	if err != nil {
 		return nil, fmt.Errorf("token exchange: %v", err)
 	}
+
 	s, err = p.createSessionState(ctx, token)
 	if err != nil {
 		return nil, fmt.Errorf("unable to update session: %v", err)
@@ -77,10 +82,12 @@ func (p *OIDCProvider) redeemRefreshToken(s *sessions.SessionState) (err error) 
 		RefreshToken: s.RefreshToken,
 		Expiry:       time.Now().Add(-time.Hour),
 	}
+
 	token, err := c.TokenSource(ctx, t).Token()
 	if err != nil {
 		return fmt.Errorf("failed to get token: %v", err)
 	}
+
 	newSession, err := p.createSessionState(ctx, token)
 	if err != nil {
 		return fmt.Errorf("unable to update session: %v", err)
@@ -144,4 +151,52 @@ func (p *OIDCProvider) ValidateSessionState(s *sessions.SessionState) bool {
 	}
 
 	return true
+}
+
+// ReturnAuth verifies if the user is in authorization group list
+func (p *OIDCProvider) ReturnAuth(token string) (string, error) {
+	var err error
+	var req *http.Request
+
+	// build the url
+	if p.ValidateURL.String() == "" {
+		p.ValidateURL = &url.URL{Scheme: "https",
+			Host: "sso.i.daimler.com",
+			Path: "/idp/userinfo.openid"}
+	}
+
+	req, err = http.NewRequest("GET", p.ValidateURL.String(), nil)
+	if err != nil {
+		return "", fmt.Errorf("cannot validate url: %v", err)
+	}
+
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("no response from the server: %v", err)
+	}
+
+	var body []byte
+	body, err = ioutil.ReadAll(resp.Body)
+	resp.Body.Close()
+	if err != nil {
+		return "", fmt.Errorf("Cannot read response: %v", err)
+	}
+
+	var scopes struct {
+		Subject            string   `json:"sub"`
+		AuthorizationGroup []string `json:"authorization_group"`
+		AppID              string   `json:"app_id"`
+	}
+
+	err = json.Unmarshal(body, &scopes)
+	if err != nil {
+		return "", fmt.Errorf("Cannot unmarshall the json: %v", err)
+	}
+
+	if len(scopes.AuthorizationGroup) == 0 {
+		return "", fmt.Errorf("User not available on authorization groups")
+	}
+	return "", nil
 }

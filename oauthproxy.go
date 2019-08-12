@@ -101,6 +101,7 @@ type OAuthProxy struct {
 	templates           *template.Template
 	Banner              string
 	Footer              string
+	ReturnAuth          string
 }
 
 // UpstreamProxy represents an upstream server to proxy to
@@ -632,6 +633,14 @@ func (p *OAuthProxy) OAuthCallback(rw http.ResponseWriter, req *http.Request) {
 		p.ErrorPage(rw, 500, "Internal Error", "Internal Error")
 		return
 	}
+
+	// verify if the user has the correct authorization groups
+        _, err = p.provider.ReturnAuth(session.AccessToken)
+        if err != nil {
+                logger.Printf("Not authorized to login", err.Error())
+                p.ErrorPage(rw, 403, "Permission Denied - User not in Authorization Groups", errorString)
+                return
+        }
 
 	s := strings.SplitN(req.Form.Get("state"), ":", 2)
 	if len(s) != 2 {
